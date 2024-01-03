@@ -1,0 +1,43 @@
+#cloud-config
+package_update: true
+packages:
+  - unzip
+
+write_files:
+  - path: /tmp/install_bastion_userdata.sh
+    content: |
+      #!/bin/bash
+      #versiones
+      awscli_version=2.13.32
+
+      cd /tmp
+      #Instalando AWS CLI
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-$awscli_version.zip" -o "awscliv2.zip"
+      unzip awscliv2.zip
+      sudo ./aws/install
+
+      #Instalación de SSM
+      sudo yum install -y https://s3.us-east-1.amazonaws.com/amazon-ssm-us-east-1/latest/linux_amd64/amazon-ssm-agent.rpm
+      sudo systemctl enable amazon-ssm-agent
+      sudo systemctl start amazon-ssm-agent
+
+      #Instalando jq
+      sudo dnf install jq -y
+
+    permissions: '0755'
+
+runcmd:
+  - /tmp/install_bastion_userdata.sh
+  - GROUPNAME="SysOps"    #Creación de un grupo en Linux.
+  - GROUP_UID=11001       #Creación de un grupo en Linux
+  - USER0_UID=10001
+  - groupadd -g $GROUP_UID $GROUPNAME    #Creación de un grupo en Linux
+  - /usr/local/bin/aws secretsmanager get-secret-value --secret-id ${secret_name0} --query SecretString --output text > /tmp/secreto.txt --region us-east-1 #user
+  - PASSWORD=$(jq -r '.password' /tmp/secreto.txt)
+  - useradd -u $USER0_UID -m -d /home/${user0} -s /bin/bash -g $GROUPNAME ${user0}
+  - echo "${user0}:$PASSWORD" | sudo chpasswd
+  - rm -f /etc/sudoers.d/90-cloud-init-users && rm -f /etc/sudoers.d/ssm-agent-users && rm -f /tmp/secreto.txt
+  - echo "${user0} ALL=(ALL) ALL" >> /etc/sudoers
+  - rm -f /etc/sudoers.d/90-cloud-init-users  ssm-agent-users  #Remove ssm-user from sudoers
+  - cd /etc/sudoers.d
+  - echo "#User rules for ssm-user" > ssm-agent-users
